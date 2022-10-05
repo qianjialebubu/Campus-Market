@@ -26,6 +26,7 @@ public class RefreshTokenInterceptor implements HandlerInterceptor {
     }
 
     //    前置校验
+    //从前端接收token指令
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
