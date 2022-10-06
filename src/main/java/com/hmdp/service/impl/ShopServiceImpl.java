@@ -10,6 +10,7 @@ import com.hmdp.entity.Shop;
 import com.hmdp.mapper.ShopMapper;
 import com.hmdp.service.IShopService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.hmdp.utils.CacheClient;
 import com.hmdp.utils.RedisData;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,6 +18,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import javax.annotation.Resource;
 import java.time.LocalDateTime;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -29,23 +31,29 @@ import static com.hmdp.utils.RedisConstants.*;
  *  服务实现类
  * </p>
  *
- * @author 虎哥
- * @since 2021-12-22
+ * @author qjl
+ * @since 2022.10.6
  */
 @Slf4j
 @Service
 public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IShopService {
-    @Autowired
+    //@Autowired
+    @Resource
     private StringRedisTemplate stringRedisTemplate;
+
+    @Resource
+    private CacheClient cacheClient;
     @Override
     public Result queryById(Long id) {
             //缓存穿透
 //        return Result.ok(queryWithPassThrough(id));
 //        Shop shop = queryWithPassThrough(id);
-
+//        Shop shop = cacheClient.queryWithPassThrough(CACHE_SHOP_KEY, id, Shop.class, this::getById, CACHE_SHOP_TTL, TimeUnit.MINUTES);
+        //使用逻辑过期时间解决缓存击穿的问题
+        Shop shop = cacheClient.queryWithLogicExpire(CACHE_SHOP_KEY, id, Shop.class, this::getById, CACHE_SHOP_TTL, TimeUnit.MINUTES);
         //使用互斥锁解决缓存击穿的问题
 //        Shop shop = queryWithmutex(id);
-        Shop shop = queryWithLogicExpire(id);
+//        Shop shop = queryWithLogicExpire(id);
 
         if (shop == null) {
             return Result.fail("店铺不存在");
@@ -169,7 +177,7 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
     }
 
     /**
-     * 把缓存穿透封装为一个方法
+     * 把缓存空值封装为一个方法，解决缓存穿透
      * @param id
      * @return
      */
