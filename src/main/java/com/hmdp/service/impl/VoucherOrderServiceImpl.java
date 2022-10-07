@@ -9,6 +9,7 @@ import com.hmdp.service.IVoucherOrderService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.hmdp.utils.RedisIdWorker;
 import com.hmdp.utils.UserHolder;
+import org.springframework.aop.framework.AopContext;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -35,7 +36,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
      * @return
      */
     @Override
-    @Transactional
+
     public Result seckillVoucher(Long voucherId) {
 
         //1、查询优惠券信息
@@ -55,13 +56,43 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         if (stock<=0) {
             return Result.fail("库存不足");
         }
-        //5、扣减库存，使用乐观锁解决库存超卖的问题
+
+        //7、返回订单id,先获取锁后执行函数，获取锁-提交事务-释放锁，现在不能实现事务的功能，需要使用代理对象
+        Long userId = UserHolder.getUser().getId();
+        synchronized (userId.toString().intern()) {
+            //获取代理对象
+            IVoucherOrderService proxy = (IVoucherOrderService) AopContext.currentProxy();
+            return proxy.createVoucherOrder(voucherId);
+        }
+//        //7、返回订单id,先获取锁后执行函数，获取锁-提交事务-释放锁，现在不能实现事务的功能，需要使用代理对象
+//        Long userId = UserHolder.getUser().getId();
+//        synchronized(userId.toString().intern()) {
+//
+//        return createVoucherOrder(voucherId);}
+
+    }
+
+    /**
+     * 单个jvm的可以实现锁
+     * @param voucherId
+     * @return
+     */
+    @Transactional
+    public  Result createVoucherOrder(Long voucherId) {
+        //5、一人一单，查询是否存在订单
+        Long userId = UserHolder.getUser().getId();
+        Integer count = query().eq("user_id", userId).eq("voucherId", voucherId).count();
+        //6.1 判断是否已经下过一个订单
+        if (count > 0) {
+            return Result.fail("该用户已经购买过此优惠券");
+        }
+        //6、扣减库存，使用乐观锁解决库存超卖的问题
         boolean voucher_id = iSeckillVoucherService.update().
-                setSql("stock = stock -1").
+                setSql("stock = stock -1 ").
                 eq("voucher_id", voucherId).
-                gt("stock",0).//只要库存大于0就可以
-                update();
-        if(! voucher_id){
+                gt("stock", 0).//只要库存大于0就可以
+                        update();
+        if (!voucher_id) {
             return Result.fail("库存不足");
         }
         //6、创建订单
@@ -75,7 +106,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         //6.3 代金券id
         order.setVoucherId(voucherId);
         save(order);
-        //7、返回订单id
         return Result.ok(orderId);
+
     }
 }
