@@ -7,9 +7,16 @@ import com.hmdp.mapper.VoucherOrderMapper;
 import com.hmdp.service.ISeckillVoucherService;
 import com.hmdp.service.IVoucherOrderService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.hmdp.utils.ILock;
 import com.hmdp.utils.RedisIdWorker;
+import com.hmdp.utils.SimpleRedisLock;
 import com.hmdp.utils.UserHolder;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 import org.springframework.aop.framework.AopContext;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.EnableAspectJAutoProxy;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,6 +37,10 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     private RedisIdWorker redisIdWorker;
     @Resource
     private ISeckillVoucherService iSeckillVoucherService;
+    @Resource
+    private StringRedisTemplate stringRedisTemplate;
+    @Resource
+    private RedissonClient redissonClient;
     /**
      * 主要实现对优惠券的秒杀
      * @param voucherId
@@ -57,13 +68,31 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
             return Result.fail("库存不足");
         }
 
-        //7、返回订单id,先获取锁后执行函数，获取锁-提交事务-释放锁，现在不能实现事务的功能，需要使用代理对象
+        //7、返回订单id,先获取锁后执行函数，使用自己的锁，现在不能实现事务的功能，需要使用代理对象
         Long userId = UserHolder.getUser().getId();
-        synchronized (userId.toString().intern()) {
+        //获取锁对象,可以使用redission创建
+//        SimpleRedisLock lock = new SimpleRedisLock("order:"+userId,stringRedisTemplate);
+        RLock lock = redissonClient.getLock("lock:order:" + userId);
+        boolean isLock = lock.tryLock();
+        if (!isLock) {
+            //获取锁失败
+            return Result.fail("不允许重复下单");
+        }
+        //捕获异常信息
+        try {
             //获取代理对象
             IVoucherOrderService proxy = (IVoucherOrderService) AopContext.currentProxy();
             return proxy.createVoucherOrder(voucherId);
+        } finally {
+            lock.unlock();
         }
+//        //7、返回订单id,先获取锁后执行函数，获取锁-提交事务-释放锁，现在不能实现事务的功能，需要使用代理对象
+//        Long userId = UserHolder.getUser().getId();
+//        synchronized (userId.toString().intern()) {
+//            //获取代理对象
+//            IVoucherOrderService proxy = (IVoucherOrderService) AopContext.currentProxy();
+//            return proxy.createVoucherOrder(voucherId);
+//        }
 //        //7、返回订单id,先获取锁后执行函数，获取锁-提交事务-释放锁，现在不能实现事务的功能，需要使用代理对象
 //        Long userId = UserHolder.getUser().getId();
 //        synchronized(userId.toString().intern()) {
@@ -81,7 +110,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     public  Result createVoucherOrder(Long voucherId) {
         //5、一人一单，查询是否存在订单
         Long userId = UserHolder.getUser().getId();
-        Integer count = query().eq("user_id", userId).eq("voucherId", voucherId).count();
+        Integer count = query().eq("user_id", userId).eq("voucher_id", voucherId).count();
         //6.1 判断是否已经下过一个订单
         if (count > 0) {
             return Result.fail("该用户已经购买过此优惠券");
