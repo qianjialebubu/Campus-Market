@@ -175,7 +175,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
                     .update();
             if (!success) {
                 // 扣减失败
-                log.error("库存不足！");
+                log.error("扣减失败！");
                 return;
             }
 
@@ -198,6 +198,7 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
                 voucherId.toString(), userId.toString(), String.valueOf(orderId)
         );
         int r = result.intValue();
+
         // 2.判断结果是否为0
         if (r != 0) {
             // 2.1.不为0 ，代表没有购买资格

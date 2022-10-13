@@ -13,6 +13,7 @@ import com.hmdp.entity.User;
 import com.hmdp.mapper.UserMapper;
 import com.hmdp.service.IUserService;
 import com.hmdp.utils.RegexUtils;
+import com.hmdp.utils.UserHolder;
 import lombok.extern.slf4j.Slf4j;
 import net.sf.jsqlparser.util.validation.metadata.NamedObject;
 import org.springframework.beans.BeanUtils;
@@ -64,6 +65,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
 
     @Override
     public Result login(LoginFormDTO loginForm, HttpSession session) {
+
         String phone = loginForm.getPhone();
         if (RegexUtils.isPhoneInvalid(phone)) {
             return Result.fail("手机号格式错误");
@@ -87,6 +89,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         }
 //        随机生成token
         String token = UUID.randomUUID().toString(true);
+        //存储token的值，有效期是30分钟
+//        Long id = UserHolder.getUser().getId();
+        stringRedisTemplate.opsForValue().set("token", token,30,TimeUnit.MINUTES);
         //将对象保存到redis中,token作为key，usr作为value.使用哈希结构,将userDTO转为map结构
         UserDTO userDTO = BeanUtil.copyProperties(user, UserDTO.class);
         //将所有的字段转换为字符串
@@ -98,6 +103,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         //避免token的存在时间太长，设置有效期30分钟，目前是只要30分钟后就会清理。这样存在一个问题，如果一直活跃也会到30分钟被清理，需要
         //如果进行了拦截器验证就需要更新有效期
         stringRedisTemplate.expire(LOGIN_USER_KEY+token,30,TimeUnit.MINUTES);
+        //如果一直活动就会更新有效期
+//        stringRedisTemplate.expire("token",30,TimeUnit.MINUTES);
 
 
         //存储
@@ -107,6 +114,15 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
 
 
 
+    }
+
+    @Override
+    public Result logout() {
+        String token = stringRedisTemplate.opsForValue().get(" ");
+//        Long id = UserHolder.getUser().getId();
+        stringRedisTemplate.delete(LOGIN_USER_KEY+token);
+        stringRedisTemplate.delete("token");
+        return Result.ok("退出成功");
     }
 
     private User createWithPhone(String phone) {
