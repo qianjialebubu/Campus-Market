@@ -17,13 +17,18 @@ import com.hmdp.utils.UserHolder;
 import lombok.extern.slf4j.Slf4j;
 import net.sf.jsqlparser.util.validation.metadata.NamedObject;
 import org.springframework.beans.BeanUtils;
+import org.springframework.data.redis.connection.BitFieldSubCommands;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
 import javax.servlet.http.HttpSession;
 
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
@@ -123,6 +128,60 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         stringRedisTemplate.delete(LOGIN_USER_KEY+token);
         stringRedisTemplate.delete("token");
         return Result.ok("退出成功");
+    }
+
+    /**
+     * 完成用户签到功能
+     * @return
+     */
+    @Override
+    public Result sign() {
+        //获取用户信息，日期信息，拼接key，获取今天是本月的第几天，写入redis
+        Long userId = UserHolder.getUser().getId();
+        LocalDateTime time = LocalDateTime.now();
+        String keySuffix = time.format(DateTimeFormatter.ofPattern(":yyyyMM"));
+        String key = USER_SIGN_KEY + userId + keySuffix;
+        int day = time.getDayOfMonth();
+        stringRedisTemplate.opsForValue().setBit(key, day-1,true);
+        return Result.ok();
+    }
+
+    /**
+     * 签到统计
+     * @return
+     */
+    @Override
+    public Result signcount() {
+        //获取今天是本月的第几天，获取截至今天的签到记录，返回一个十进制数，遍历，与1做与运算，判断这个位是否为0，0结束，计数器加1
+        //获取用户信息，日期信息，拼接key，获取今天是本月的第几天，写入redis
+        Long userId = UserHolder.getUser().getId();
+        LocalDateTime time = LocalDateTime.now();
+        String keySuffix = time.format(DateTimeFormatter.ofPattern(":yyyyMM"));
+        String key = USER_SIGN_KEY + userId + keySuffix;
+        int day = time.getDayOfMonth();
+        //获取截至当前日期的位数
+        List<Long> result = stringRedisTemplate.opsForValue().
+                bitField(key,
+                        BitFieldSubCommands.create().
+                                get(BitFieldSubCommands.BitFieldType.unsigned(day)).valueAt(0));
+        if (result == null || result.isEmpty()) {
+            return Result.ok(0);
+        }
+        Long aLong = result.get(0);
+        if (aLong == 0 || aLong == null){
+            return Result.ok(0);
+        }
+        int count = 0;
+        while (true){
+            if((aLong & 1) == 0){
+                break;
+            }else {
+                count++;
+            }
+            aLong >>>=1;
+        }
+
+        return Result.ok(count);
     }
 
     private User createWithPhone(String phone) {
